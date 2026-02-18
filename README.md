@@ -1,42 +1,65 @@
-# 画像キャプション付与ツール
+# 画像キャプション付与ツール（名前入れ）
 
-画像の**中央下**に「施策名 名前」を入れるツールです。  
-テキストは太字・#565CAA・白背景で描画されます。
+画像の**中央下**に「施策名 名前」を入れるツールです。テキストは太字・白背景で描画されます（ウェブ版では色を選択可能）。
 
-- **ブラウザ版**: このリポジトリを GitHub Pages で公開すると、URL を開くだけで使えます。
-- **Python 版**: ローカルで一括処理したい場合は [add_caption_to_images.py](add_caption_to_images.py) を利用してください。
-
----
-
-## ブラウザ版の使い方（GitHub Pages）
-
-1. GitHub で **新しいリポジトリ**を作成（例: `image-caption-tool`）
-2. このフォルダの中身を push する:
-   ```bash
-   cd image-caption-tool
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/<あなたのユーザー名>/<リポジトリ名>.git
-   git push -u origin main
-   ```
-3. リポジトリの **Settings → Pages** を開く
-4. **Source** で「Deploy from a branch」を選び、Branch を `main`、Folder を **/ (root)** にして Save
-5. 数分後、`https://<あなたのユーザー名>.github.io/<リポジトリ名>/` でツールが開きます
-
-**注意**: 処理はすべてブラウザ内で完結します。画像は外部に送信されません。
+- **ウェブ版**: ブラウザで開いてフォルダを選ぶだけ。処理はすべてブラウザ内で完結し、画像は外部に送信されません。
+- **Python 版**: ローカルでフォルダを指定して一括上書き。ファイル名・階層はそのまま。
 
 ---
 
-## Python 版の使い方
+## ウェブ版で使いたい人
+
+**https://takako-sato.github.io/onbo-nametag/** を開いて利用できます。
+
+1. 施策名・名前・テキストの色（任意）を入力
+2. フォルダを選択（配下の全階層の画像を一括対象）
+3. 「名前を入れてダウンロード」で ZIP がダウンロードされます
+4. ZIP を元のフォルダに解凍すると、同じパス・同じファイル名で保存されます
+
+隠しファイル（.DS_Store など）は自動で除外され、画像の枚数のみ対象になります。
+
+---
+
+## Python で使いたい人
+
+### 準備
 
 ```bash
-pip install Pillow
+pip install -r requirements_image_caption.txt
+```
+
+### 基本的な使い方
+
+```bash
 python add_caption_to_images.py "施策名" ./画像フォルダ
 ```
 
-- フォルダを渡すと配下の全階層の画像を**上書き**します（ファイル名はそのまま）
-- 名前のデフォルトは「佐藤貴子」。変更する場合は `--name "名前"` を付けてください
+- フォルダを渡すと**配下の全階層**を自動で走査し、見つかった画像を**同じパスで上書き**（ファイル名は変更しません）
+- 複数フォルダを渡せます: `"施策名" ./フォルダA ./フォルダB`
 
-詳細は [README_image_caption.md](README_image_caption.md) を参照してください。
+### 名前を変える
+
+```bash
+python add_caption_to_images.py "施策名" ./画像フォルダ --name "研修 二郎"
+```
+
+### 別フォルダに出力する
+
+```bash
+python add_caption_to_images.py "施策名" ./元画像 -o ./出力フォルダ
+```
+
+### オプション一覧
+
+| オプション | 説明 | デフォルト |
+|-----------|------|------------|
+| `-n`, `--name` | 名前 | 研修 二郎 |
+| `-o`, `--output-dir` | 出力フォルダ | なし（元画像を上書き） |
+| `--suffix` | `-o` 使用時のファイル名接尾辞 | なし |
+| `--text-size` | 文字サイズの比率 | `0.045` |
+| `--margin` | 下余白の比率 | `0.04` |
+| `--padding` | 白背景の余白の比率 | `0.015` |
+
+### フォント
+
+日本語は環境のフォントを自動選択します（Mac: ヒラギノ角ゴシック / Arial Unicode、Windows: Meiryo など）。必要に応じて `~/Library/Fonts/` に Noto Sans CJK を置いてください。
