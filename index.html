@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>画像キャプション付与ツール</title>
+  <title>【研修用】一括画像名前入れツール</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     :root {
       --color-text: #565CAA;
@@ -84,8 +85,8 @@
   </style>
 </head>
 <body>
-  <h1>画像キャプション付与ツール</h1>
-  <p style="font-size:0.875rem;color:#666;margin:0 0 20px;">画像の中央下に「施策名 名前」を入れます。処理はブラウザ内のみで、画像は外部に送信されません。</p>
+  <h1>研修で画像に名前を入れるツール</h1>
+  <p style="font-size:0.875rem;color:#666;margin:0 0 20px;">画像の中央下に「施策名 名前」を入れます。</p>
 
   <div class="form-group">
     <label for="campaign">施策名</label>
@@ -93,25 +94,39 @@
   </div>
   <div class="form-group">
     <label for="author">名前</label>
-    <input type="text" id="author" placeholder="例: 佐藤貴子" value="佐藤貴子">
+    <input type="text" id="author" placeholder="名前を入力" value="">
   </div>
   <div class="form-group">
-    <label for="files">画像（複数選択可）</label>
-    <input type="file" id="files" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif" multiple>
+    <label for="textColor">テキストの色</label>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <input type="color" id="textColor" style="width:56px;height:40px;padding:2px;cursor:pointer;border:1px solid #ccc;border-radius:8px;">
+      <span id="textColorHex" style="font-size:0.875rem;color:#666;"></span>
+    </div>
   </div>
-  <button type="button" id="run">キャプションを付けてダウンロード</button>
+  <div class="form-group">
+    <label for="fileOrFolder">フォルダ選択（フォルダ配下の全階層一括で可能）</label>
+    <input type="file" id="fileOrFolder" webkitdirectory directory multiple accept="image/png,image/jpeg,image/jpg,image/webp,image/gif" style="display:block;padding:10px;font-size:0.875rem;">
+    <p id="selectionStatus" style="font-size:0.875rem;color:#666;margin:8px 0 0;"></p>
+  </div>
+  <button type="button" id="run">名前を入れてダウンロード</button>
 
   <div id="log"></div>
 
-  <p class="note">テキストは太字・#565CAA・白背景で描画されます。ファイル名はそのままで、各画像が個別にダウンロードされます。</p>
+  <p class="note">テキストは太字・白背景で描画されます（色は選択可能）。フォルダを選ぶと配下の全階層の画像を一括処理し、<strong>ファイル名・フォルダ階層をそのまま</strong>ZIPでまとめてダウンロードします。<br><br>何か要望や質問等は、Slackで@takako_satoまで。</p>
 
   <script>
     (function () {
-      const TEXT_COLOR = '#565CAA';
       const BG_COLOR = '#ffffff';
       const MARGIN_RATIO = 0.04;
       const TEXT_RATIO = 0.045;
       const PADDING_RATIO = 0.015;
+
+      function randomHexColor() {
+        var r = Math.floor(Math.random() * 200);
+        var g = Math.floor(Math.random() * 200);
+        var b = Math.floor(Math.random() * 200);
+        return '#' + [r, g, b].map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      }
 
       function $(id) { return document.getElementById(id); }
       function log(msg, isError) {
@@ -120,7 +135,7 @@
         el.className = isError ? 'error' : '';
       }
 
-      function drawCaption(img, campaign, author) {
+      function drawCaption(img, campaign, author, textColor) {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
@@ -134,7 +149,7 @@
         const padding = Math.max(4, Math.floor(short * PADDING_RATIO));
         const margin = Math.floor(short * MARGIN_RATIO);
 
-        const text = (campaign ? campaign + ' ' : '') + author;
+        const text = [campaign, author].filter(Boolean).join(' ');
         ctx.font = `700 ${fontSize}px "Noto Sans JP", sans-serif`;
 
         const metrics = ctx.measureText(text);
@@ -158,7 +173,7 @@
         roundRect(ctx, x1, y1, x2 - x1, y2 - y1, r);
         ctx.fill();
 
-        ctx.fillStyle = TEXT_COLOR;
+        ctx.fillStyle = textColor || $('textColor').value;
         const textBaselineY = (typeof metrics.actualBoundingBoxAscent === 'number') ? (y + metrics.actualBoundingBoxAscent) : (y + fontSize * 0.85);
         ctx.fillText(text, x, textBaselineY);
 
@@ -179,38 +194,63 @@
         ctx.closePath();
       }
 
-      function downloadCanvas(canvas, filename) {
-        const mime = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-        canvas.toBlob(function (blob) {
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = filename;
-          a.click();
-          URL.revokeObjectURL(a.href);
-        }, mime, 0.95);
+      const IMAGE_EXTS = /\.(png|jpe?g|gif|webp|bmp)$/i;
+      function isImageFile(file) {
+        return IMAGE_EXTS.test(file.name);
       }
+
+      /** ZIP内のパス（階層を保持）。フォルダ選択時は webkitRelativePath、そうでなければファイル名のみ */
+      function getZipPath(file) {
+        return file.webkitRelativePath || file.name;
+      }
+
+      function collectFiles() {
+        return Array.from($('fileOrFolder').files).filter(isImageFile);
+      }
+
+      function updateSelectionStatus() {
+        const files = collectFiles();
+        const el = $('selectionStatus');
+        if (files.length === 0) el.textContent = '';
+        else el.textContent = '選択済み: ' + files.length + ' 件';
+      }
+
+      $('fileOrFolder').addEventListener('change', updateSelectionStatus);
 
       $('run').addEventListener('click', function () {
         const campaign = ($('campaign').value || '').trim();
-        const author = ($('author').value || '').trim() || '佐藤貴子';
-        const files = $('files').files;
+        const author = ($('author').value || '').trim();
+        const textColor = $('textColor').value;
+        const files = collectFiles();
 
         if (!files.length) {
-          log('画像を選択してください。', true);
+          log('フォルダを選択してください。', true);
           return;
         }
 
         const btn = $('run');
         btn.disabled = true;
-        log('処理中...');
+        log('処理中...（' + files.length + ' 件）');
 
-        let done = 0;
         const total = files.length;
+        const zip = new JSZip();
+        var rel = files[0].webkitRelativePath || '';
+        var zipName = rel ? (rel.split('/')[0] || rel.split('\\')[0] || 'captioned') + '.zip' : 'captioned.zip';
 
         function process(i) {
           if (i >= total) {
-            log(total + ' 件ダウンロードしました。');
-            btn.disabled = false;
+            zip.generateAsync({ type: 'blob' }).then(function (blob) {
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = zipName;
+              a.click();
+              URL.revokeObjectURL(a.href);
+              log(total + ' 件を ' + zipName + ' でダウンロードしました。');
+              btn.disabled = false;
+            }).catch(function () {
+              log('ZIPの作成に失敗しました。', true);
+              btn.disabled = false;
+            });
             return;
           }
           const file = files[i];
@@ -218,13 +258,16 @@
           reader.onload = function () {
             const img = new Image();
             img.onload = function () {
-              const canvas = drawCaption(img, campaign, author);
-              downloadCanvas(canvas, file.name);
-              done++;
-              process(i + 1);
+              const canvas = drawCaption(img, campaign, author, textColor);
+              const pathInZip = getZipPath(file);
+              const mime = file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+              canvas.toBlob(function (blob) {
+                zip.file(pathInZip, blob);
+                process(i + 1);
+              }, mime, 0.95);
             };
             img.onerror = function () {
-              log('画像の読み込みに失敗しました: ' + file.name, true);
+              log('画像の読み込みに失敗しました: ' + (file.webkitRelativePath || file.name), true);
               btn.disabled = false;
             };
             img.src = reader.result;
@@ -233,6 +276,16 @@
         }
 
         process(0);
+      });
+
+      (function initTextColor() {
+        var color = randomHexColor();
+        $('textColor').value = color;
+        $('textColorHex').textContent = color;
+      })();
+
+      $('textColor').addEventListener('input', function () {
+        $('textColorHex').textContent = this.value;
       });
     })();
   </script>
