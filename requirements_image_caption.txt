@@ -1,0 +1,2 @@
+# 画像キャプション付与スクリプト用（add_caption_to_images.py）
+Pillow>=9.0.0

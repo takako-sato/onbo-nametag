@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>画像キャプション付与ツール</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-text: #565CAA;
+      --color-bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Noto Sans JP", sans-serif;
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 24px 16px;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.25rem;
+      margin: 0 0 24px;
+      color: #333;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #333;
+    }
+    .form-group input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    .form-group input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      font-size: 0.875rem;
+      border: 1px dashed #999;
+      border-radius: 8px;
+      background: #fff;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: inherit;
+      color: #fff;
+      background: var(--color-text);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .note {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 24px;
+      line-height: 1.5;
+    }
+    #log {
+      margin-top: 16px;
+      font-size: 0.875rem;
+      color: #333;
+    }
+    #log.error { color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>画像キャプション付与ツール</h1>
+  <p style="font-size:0.875rem;color:#666;margin:0 0 20px;">画像の中央下に「施策名 名前」を入れます。処理はブラウザ内のみで、画像は外部に送信されません。</p>
+
+  <div class="form-group">
+    <label for="campaign">施策名</label>
+    <input type="text" id="campaign" placeholder="例: リリース研修_CP⑦" value="">
+  </div>
+  <div class="form-group">
+    <label for="author">名前</label>
+    <input type="text" id="author" placeholder="例: 佐藤貴子" value="佐藤貴子">
+  </div>
+  <div class="form-group">
+    <label for="files">画像（複数選択可）</label>
+    <input type="file" id="files" accept="image/png,image/jpeg,image/jpg,image/webp,image/gif" multiple>
+  </div>
+  <button type="button" id="run">キャプションを付けてダウンロード</button>
+
+  <div id="log"></div>
+
+  <p class="note">テキストは太字・#565CAA・白背景で描画されます。ファイル名はそのままで、各画像が個別にダウンロードされます。</p>
+
+  <script>
+    (function () {
+      const TEXT_COLOR = '#565CAA';
+      const BG_COLOR = '#ffffff';
+      const MARGIN_RATIO = 0.04;
+      const TEXT_RATIO = 0.045;
+      const PADDING_RATIO = 0.015;
+
+      function $(id) { return document.getElementById(id); }
+      function log(msg, isError) {
+        const el = $('log');
+        el.textContent = msg;
+        el.className = isError ? 'error' : '';
+      }
+
+      function drawCaption(img, campaign, author) {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const w = c.width, h = c.height;
+        const short = Math.min(w, h);
+
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const fontSize = Math.max(12, Math.floor(short * TEXT_RATIO));
+        const padding = Math.max(4, Math.floor(short * PADDING_RATIO));
+        const margin = Math.floor(short * MARGIN_RATIO);
+
+        const text = (campaign ? campaign + ' ' : '') + author;
+        ctx.font = `700 ${fontSize}px "Noto Sans JP", sans-serif`;
+
+        const metrics = ctx.measureText(text);
+        const tw = metrics.width;
+        let th = 0;
+        if (typeof metrics.actualBoundingBoxAscent === 'number' && typeof metrics.actualBoundingBoxDescent === 'number') {
+          th = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+        }
+        if (th <= 0) th = fontSize * 1.2;
+
+        const x = (w - tw) / 2;
+        const y = h - th - margin - padding;
+
+        const x1 = x - padding;
+        const y1 = y - padding;
+        const x2 = x + tw + padding;
+        const y2 = y + th + padding;
+        const r = Math.max(2, padding / 2);
+
+        ctx.fillStyle = BG_COLOR;
+        roundRect(ctx, x1, y1, x2 - x1, y2 - y1, r);
+        ctx.fill();
+
+        ctx.fillStyle = TEXT_COLOR;
+        const textBaselineY = (typeof metrics.actualBoundingBoxAscent === 'number') ? (y + metrics.actualBoundingBoxAscent) : (y + fontSize * 0.85);
+        ctx.fillText(text, x, textBaselineY);
+
+        return c;
+      }
+
+      function roundRect(ctx, x, y, width, height, radius) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+      }
+
+      function downloadCanvas(canvas, filename) {
+        const mime = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        canvas.toBlob(function (blob) {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, mime, 0.95);
+      }
+
+      $('run').addEventListener('click', function () {
+        const campaign = ($('campaign').value || '').trim();
+        const author = ($('author').value || '').trim() || '佐藤貴子';
+        const files = $('files').files;
+
+        if (!files.length) {
+          log('画像を選択してください。', true);
+          return;
+        }
+
+        const btn = $('run');
+        btn.disabled = true;
+        log('処理中...');
+
+        let done = 0;
+        const total = files.length;
+
+        function process(i) {
+          if (i >= total) {
+            log(total + ' 件ダウンロードしました。');
+            btn.disabled = false;
+            return;
+          }
+          const file = files[i];
+          const reader = new FileReader();
+          reader.onload = function () {
+            const img = new Image();
+            img.onload = function () {
+              const canvas = drawCaption(img, campaign, author);
+              downloadCanvas(canvas, file.name);
+              done++;
+              process(i + 1);
+            };
+            img.onerror = function () {
+              log('画像の読み込みに失敗しました: ' + file.name, true);
+              btn.disabled = false;
+            };
+            img.src = reader.result;
+          };
+          reader.readAsDataURL(file);
+        }
+
+        process(0);
+      });
+    })();
+  </script>
+</body>
+</html>
