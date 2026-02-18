@@ -196,6 +196,7 @@
 
       const IMAGE_EXTS = /\.(png|jpe?g|gif|webp|bmp)$/i;
       function isImageFile(file) {
+        if (file.name.startsWith('.')) return false;
         return IMAGE_EXTS.test(file.name);
       }
 
@@ -212,7 +213,7 @@
         const files = collectFiles();
         const el = $('selectionStatus');
         if (files.length === 0) el.textContent = '';
-        else el.textContent = '選択済み: ' + files.length + ' 件';
+        else el.textContent = '画像 ' + files.length + ' 件（画像ファイル以外は除外）';
       }
 
       $('fileOrFolder').addEventListener('change', updateSelectionStatus);
